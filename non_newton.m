@@ -4,8 +4,21 @@ addpath('video');
 % 主程式：流體流速偵測
 clear; clc;
 
-% 1. 讀取影片
-videoFrames = readVideo('DJI_20251002122216_0047_D.mp4');
+% 1. 互動式選取影片檔案
+% [檔案名, 路徑] = uigetfile({'*.mp4;*.avi;*.mov', '影片檔案 (*.mp4, *.avi, *.mov)'}, '請選擇要分析的影片');
+[fileName, filePath] = uigetfile({'*.mp4;*.avi;*.mov', 'Video Files (*.mp4, *.avi, *.mov)'}, '選取影片檔案');
+
+% 檢查使用者是否取消了選擇
+if isequal(fileName, 0)
+    disp('使用者取消選擇，程式停止。');
+    return;
+else
+    fullPath = fullfile(filePath, fileName);
+    fprintf('正在讀取影片: %s\n', fullPath);
+    
+    % 使用完整的路徑讀取影片
+    videoFrames = readVideo(fullPath);
+end
 
 % 2. 選擇參考點
 refPoint = selectReferencePoint(videoFrames{1});

@@ -1,11 +1,10 @@
 addpath('functions');   % 把副程式資料夾加入搜尋路徑
-addpath('video');
 
 % 主程式：流體流速偵測
 clear; clc;
 
 % 1. 讀取影片
-videoFrames = readVideo('DJI_20251002122216_0047_D.mp4');
+videoFrames = readVideo('IMG_0909.MOV');
 
 % 2. 選擇參考點
 refPoint = selectReferencePoint(videoFrames{1});

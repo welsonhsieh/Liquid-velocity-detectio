@@ -1,5 +1,4 @@
 addpath('functions');   % 把副程式資料夾加入搜尋路徑
-addpath('video');
 
 % 主程式：流體流速偵測
 clear; clc;

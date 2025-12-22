@@ -21,7 +21,11 @@ else
 end
 
 % 2. 選擇參考點
-refPoint = selectReferencePoint(videoFrames{1});
+refPoint = selectReferencePoint(fullPath);
+if isempty(refPoint)
+    disp('未選擇參考點或已取消。');
+    return;
+end
 
 % 3. 追蹤參考點
 trackedPositions = trackPoint(videoFrames, refPoint);

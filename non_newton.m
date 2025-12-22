@@ -19,7 +19,6 @@ else
     % 使用完整的路徑讀取影片
     videoFrames = readVideo(fullPath);
 end
->>>>>>> cool
 
 % 2. 選擇參考點
 refPoint = selectReferencePoint(videoFrames{1});

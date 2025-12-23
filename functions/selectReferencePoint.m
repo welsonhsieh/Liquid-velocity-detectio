@@ -1,11 +1,11 @@
-function refPoint = selectReferencePoint(videoFile)
+function [refPoint, refFrameIdx] = selectReferencePoint(videoFile)
     % 使用 GUI 選擇影片幀並手動挑選參考點
     %
     % 輸出：
     %   refPoint - [x, y]，若使用者關閉視窗或取消，回傳 []
 
     v = VideoReader(videoFile);
-    numFrames = max(1, floor(v.Duration * v.FrameRate));
+    numFrames = floor(v.Duration * v.FrameRate);
 
     % 建立 GUI 視窗
     hFig = figure('Name','選擇參考點','NumberTitle','off',...
@@ -42,6 +42,7 @@ function refPoint = selectReferencePoint(videoFile)
     % 取回座標（可能為空）
     if isvalid(hFig)
         refPoint = getappdata(hFig, 'refPoint');
+        refFrameIdx = getappdata(hFig, 'refFrameIdx');
         % 關閉 GUI
         delete(hFig);
     else
@@ -73,8 +74,9 @@ function pickPoint(v, frameIdx, hAx, hFig)
     axes(hAx);
 
     try
-        [x, y] = ginput(1);
-        refPoint = round([x, y]);
+        [x,y] = ginput(1);
+    refPoint = round([x,y]);
+    refFrameIdx = frameIdx; % 記錄當下幀數
 
         % 標記選取的點
         hold(hAx, 'on');
@@ -84,9 +86,11 @@ function pickPoint(v, frameIdx, hAx, hFig)
 
         % 儲存座標到 GUI handle
         setappdata(hFig, 'refPoint', refPoint);
+        setappdata(hFig, 'refFrameIdx', frameIdx);
     catch
         % 使用者按 ESC 或視窗被打斷
         setappdata(hFig, 'refPoint', []);
+        setappdata(hFig, 'refFrameIdx', []);
     end
 
     % 結束等待
@@ -98,6 +102,7 @@ end
 function onClose(hFig)
     % 使用者關閉視窗時，回傳空值並安全結束
     setappdata(hFig, 'refPoint', []);
+    setappdata(hFig, 'refFrameIdx', []);
     uiresume(hFig);
     delete(hFig);
 end

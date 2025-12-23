@@ -21,7 +21,7 @@ function visualizeResults(frames, positions, velocity)
     ylabel(hAx2, 'Velocity (m/s)');
     title(hAx2, '流速曲線 (動態)');
     xlim(hAx2, [1 numFrames]);
-    ylim(hAx2, [min(velocity)-0.1, max(velocity)+0.1]);
+    ylim([min(velocity)-0.1*abs(min(velocity)), max(velocity)+0.1*abs(max(velocity))]);
     
     % 動態更新
     for i = 2:numFrames

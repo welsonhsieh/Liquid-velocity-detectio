@@ -11,7 +11,6 @@ function visualizeResults(frames, positions, velocity, startFrame)
 
     % 右邊速度曲線
     hAx2 = subplot(1,2,2);
-<<<<<<< HEAD
     hVel = plot(hAx2, 1, velocity(1), 'b-', 'LineWidth', 2);
     xlabel(hAx2, 'Frame');
     ylabel(hAx2, 'Velocity (m/s)');
@@ -19,12 +18,6 @@ function visualizeResults(frames, positions, velocity, startFrame)
     xlim(hAx2, [1 numFrames]);
     ylim([min(velocity)-0.1*abs(min(velocity)), max(velocity)+0.1*abs(max(velocity))]);
     
-=======
-    hVel = plot(hAx2, startFrame, velocity(startFrame), 'b-', 'LineWidth', 2);
-    xlabel(hAx2,'Frame'); ylabel(hAx2,'Velocity (m/s)');
-    xlim(hAx2,[startFrame numFrames]);
-
->>>>>>> selectFix
     % 動態更新
     for i = startFrame+1:numFrames
         set(hImg,'CData',frames{i});

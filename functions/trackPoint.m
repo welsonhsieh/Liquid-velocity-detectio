@@ -11,24 +11,32 @@ function positions = trackPoint(frames, refPoint, startFrame)
     numFrames = length(frames);
     positions = nan(numFrames, 2); % 預設 NaN
     
-    % 初始化追蹤器在選定幀
-    tracker = vision.PointTracker('MaxBidirectionalError', 2);
-    initialize(tracker, refPoint, frames{startFrame});
+    % 初始化光流物件 (Lucas-Kanade)
+    opticFlow = opticalFlowLK('NoiseThreshold',0.01);
+
+    % 灰階影像
+    prevGray = rgb2gray(frames{startFrame});
     positions(startFrame,:) = refPoint;
-    
+
     % 往後追蹤
     for i = startFrame+1:numFrames
-        [pos, validity] = step(tracker, frames{i});
-        if validity
-            positions(i,:) = pos;
+        currGray = rgb2gray(frames{i});
+        flow = estimateFlow(opticFlow, currGray);
+
+        % 取出參考點附近的光流向量
+        x = round(positions(i-1,1));
+        y = round(positions(i-1,2));
+
+        if x > 0 && y > 0 && x <= size(flow.Vx,2) && y <= size(flow.Vx,1)
+            dx = flow.Vx(y,x);
+            dy = flow.Vy(y,x);
+            positions(i,:) = positions(i-1,:) + [dx, dy];
         else
-            positions(i,:) = positions(i-1,:); % 若失敗則保持前一點
+            positions(i,:) = positions(i-1,:); % 邊界外就保持前一點
         end
     end
-    
-    % （可選）往前追蹤：如果你想要從選定幀往前也追蹤
-    % 需要重新初始化一個 tracker，或用反向光流
-    % 這裡先簡單設為 NaN
+
+    % （可選）往前追蹤：這裡先設為 NaN
     % for i = startFrame-1:-1:1
     %     positions(i,:) = NaN;
     % end

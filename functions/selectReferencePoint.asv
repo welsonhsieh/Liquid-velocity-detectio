@@ -142,22 +142,22 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
     old = findobj(hAx,'Type','rectangle','Tag','roiRect');
     if ~isempty(old), delete(old); end
     r = rectangle('Position',posClamped,'EdgeColor','g','LineWidth',2,'Tag','roiRect');
-    end
+end
 
-    function clearRoiCb()
-        setappdata(hFig,'roi',[]);
-        % 移除 ROI rectangle（若存在）
-        old = findobj(hAx,'Type','rectangle','Tag','roiRect');
-        if ~isempty(old), delete(old); end
-        % 重新顯示當前影格以移除殘留繪圖
-        try
-            cdata = get(hImg,'CData');
-            cla(hAx);
-            imshow(cdata,'Parent',hAx);
-            axis(hAx,'image');
-        catch
-        end
+function clearRoiCb()
+    setappdata(hFig,'roi',[]);
+    % 移除 ROI rectangle（若存在）
+    old = findobj(hAx,'Type','rectangle','Tag','roiRect');
+    if ~isempty(old), delete(old); end
+    % 重新顯示當前影格以移除殘留繪圖
+    try
+        cdata = get(hImg,'CData');
+        cla(hAx);
+        imshow(cdata,'Parent',hAx);
+        axis(hAx,'image');
+    catch
     end
+end
 
 
     function pickPointCallback()

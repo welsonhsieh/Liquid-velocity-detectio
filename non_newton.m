@@ -29,6 +29,9 @@ end
 
 
 % 3. 追蹤參考點
+fprintf('Main: refPoint = [%.0f, %.0f], refFrameIdx = %d\n', refPoint(1), refPoint(2), refFrameIdx);
+disp(['frame size at refFrame: ', mat2str(size(videoFrames{refFrameIdx}))]);
+
 trackedPositions = trackPoint(videoFrames, refPoint, refFrameIdx);
 
 % 4. 計算速度

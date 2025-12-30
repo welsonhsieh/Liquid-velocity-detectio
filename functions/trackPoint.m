@@ -1,232 +1,234 @@
-function positions = trackPoint(frames, refPoint, startFrame)
-% 前緣偵測追蹤器（ROI + 最近 blob + 預測 + 安全防護 + 可選 debug）
+function positions = trackPoint(frames, refPoint, startFrame, roi)
+% trackPoint 追蹤流體前緣（ROI 內偵測：edge first, blob fallback, diff fallback）
 % frames: cell array of RGB frames
 % refPoint: [x,y] 起始參考點（像素座標）
 % startFrame: 起始幀索引
+% roi: optional [x y w h] 限制搜尋區域
 % 返回 positions: numFrames x 2
 
-    % --- 基本初始化與防護 ---
+    % --- 基本檢查與初始化 ---
+    if nargin < 1 || isempty(frames)
+        error('frames 必須為 cell array of images');
+    end
     numFrames = numel(frames);
-    positions = nan(numFrames, 2);
+    positions = nan(numFrames,2);
+    if nargin < 4, roi = []; end
+    if nargin < 3 || isempty(startFrame), startFrame = 1; end
+    startFrame = max(1, min(startFrame, numFrames));
 
-    if nargin < 3 || isempty(startFrame)
-        startFrame = 1;
-    end
-    if startFrame < 1 || startFrame > numFrames
-        error('trackPoint: startFrame 超出範圍 (%d)', startFrame);
-    end
-
+    % 驗證 refPoint 與 ROI 對齊（若提供 ROI，refPoint 建議在 ROI 內）
     if nargin < 2 || isempty(refPoint) || any(isnan(refPoint))
         fsize = size(frames{startFrame});
         refPoint = [round(fsize(2)/2), round(fsize(1)/2)];
-        warning('trackPoint: refPoint 無效，改用影像中心 [%d,%d] 作為起始點.', refPoint(1), refPoint(2));
+        warning('trackPoint: refPoint 無效，改用影像中心 [%d,%d]', refPoint(1), refPoint(2));
+    end
+    if ~isempty(roi)
+        rx = roi(1); ry = roi(2); rw = roi(3); rh = roi(4);
+        if refPoint(1) < rx || refPoint(1) > rx+rw || refPoint(2) < ry || refPoint(2) > ry+rh
+            error('refPoint 建議位於 ROI 內，請重新選擇參考點或調整 ROI');
+        end
     end
 
     positions(startFrame,:) = refPoint;
-    prevPos = positions(startFrame,:);
-    prevPrevPos = []; % will be set after first update
-    fprintf('trackPoint init: startFrame=%d refPoint=[%.1f,%.1f] numFrames=%d\n', ...
-        startFrame, prevPos(1), prevPos(2), numFrames);
+    prevPos = refPoint;
+    prevPrevPos = [];
 
     % --- 參數（可調） ---
-    roiRadius = 200;    % ROI 半徑（像素）
-    minArea = 200;       % 最小 blob 面積（像素）
-    maxArea = 1e6;      % 最大 blob 面積（像素）
-    maxJump = 150;      % 最大允許跳躍距離（像素）
-    bottomMargin = 5;   % 排除貼底 blob 的閾值（像素）
-    bwarea_min = 50;    % bwareaopen 參數
-    useDebug = true;   % 若要視覺化候選，設 true
-    useEdgeFallback = true; % 若 blob 不穩定，啟用邊緣前緣偵測 fallback
+    roiRadius = 200;    % blob fallback 搜尋半徑（仍在 ROI 內）
+    minArea = 50;       % blob 最小面積
+    maxJump = 30;       % 每幀最大允許移動距離（可調）
+    bwarea_min = 50;    % 二值化後去小雜點
+    edgeAreaThresh = 6; % 邊緣群組最小面積
+    useEdgeFirst = true; % 優先使用邊緣偵測
+    useDebug = false;     % 若要視覺化，設 true
+    halfWidth = 20;      % local-edge 搜尋左右半寬（像素）
+    cannyThresh = [0.02, 0.18];
 
-    % --- 追蹤迴圈 ---
+    % debug figure
+    if useDebug
+        hFigDbg = figure('Name','trackPoint debug','NumberTitle','off');
+    end
+
+    % --- 主迴圈 ---
     for i = startFrame+1:numFrames
-        % 確保 prevPos 有效
-        if isempty(prevPos) || any(isnan(prevPos))
-            lastIdx = find(~isnan(positions(:,1)), 1, 'last');
-            if ~isempty(lastIdx)
-                prevPos = positions(lastIdx,:);
-            else
-                prevPos = refPoint;
-            end
-        end
-
         frame = frames{i};
+        if isempty(frame)
+            positions(i,:) = prevPos;
+            continue;
+        end
+
         gray = rgb2gray(frame);
-        gray = imadjust(gray);                 % 增強對比
-        bw = imbinarize(gray, 'adaptive');
-        bw = bwareaopen(bw, bwarea_min);       % 去小雜點
+        gray = imadjust(gray);
+        gray = imgaussfilt(gray, 0.8);
 
-        cc = bwconncomp(bw);
-        if cc.NumObjects == 0
-            % 若沒有 blob，嘗試邊緣前緣（若啟用）
-            if useEdgeFallback
-                [frontX, frontY, okEdge] = detectFrontEdge(gray);
-                if okEdge
-                    candX = frontX; candY = frontY;
-                    positions(i,:) = limitMove(prevPos, [candX candY], maxJump);
-                    prevPrevPos = prevPos;
-                    prevPos = positions(i,:);
-                    fprintf('Frame %d: edge fallback chosen=[%.1f,%.1f]\n', i, positions(i,1), positions(i,2));
-                    continue;
-                end
-            end
-            positions(i,:) = prevPos;
-            fprintf('Frame %d: no blobs -> keep prev=[%.1f,%.1f]\n', i, prevPos(1), prevPos(2));
-            continue;
-        end
-
-        stats = regionprops(cc, 'Area', 'BoundingBox', 'Centroid');
-        imgH = size(gray,1);
-
-        % 篩選合法候選（面積與非貼底）
-        validIdx = [];
-        for k = 1:length(stats)
-            a = stats(k).Area;
-            bbox = stats(k).BoundingBox; % [x y w h]
-            bottomY = bbox(2) + bbox(4);
-            if a >= minArea && a <= maxArea && (imgH - bottomY) > bottomMargin
-                validIdx(end+1) = k; %#ok<AGROW>
-            end
-        end
-
-        % 放寬條件（若全部被排除）
-        if isempty(validIdx)
-            for k = 1:length(stats)
-                if stats(k).Area >= minArea/4
-                    validIdx(end+1) = k; %#ok<AGROW>
-                end
-            end
-        end
-
-        if isempty(validIdx)
-            % 還是沒有候選，嘗試邊緣前緣或保留 prev
-            if useEdgeFallback
-                [frontX, frontY, okEdge] = detectFrontEdge(gray);
-                if okEdge
-                    positions(i,:) = limitMove(prevPos, [frontX frontY], maxJump);
-                    prevPrevPos = prevPos;
-                    prevPos = positions(i,:);
-                    fprintf('Frame %d: edge fallback chosen=[%.1f,%.1f]\n', i, positions(i,1), positions(i,2));
-                    continue;
-                end
-            end
-            positions(i,:) = prevPos;
-            fprintf('Frame %d: no valid candidates -> keep prev=[%.1f,%.1f]\n', i, prevPos(1), prevPos(2));
-            continue;
-        end
-
-        % 預測下一位置（線性外推）
-        if ~isempty(prevPrevPos) && ~any(isnan(prevPrevPos))
-            alpha = 1.0;
-            predPos = prevPos + (prevPos - prevPrevPos) * alpha;
-        else
-            predPos = prevPos;
-        end
-
-        % ROI 優先：以 predPos 為中心搜尋 validIdx 中的 roiCandidates
-        x0 = predPos(1); y0 = predPos(2);
-        roiCandidates = [];
-        for idx = validIdx
-            c = stats(idx).Centroid;
-            if hypot(c(1)-x0, c(2)-y0) <= roiRadius
-                roiCandidates(end+1) = idx; %#ok<AGROW>
-            end
-        end
-
-        % 選擇候選：先從 roiCandidates 選最近者，否則從 validIdx 選最近或最大面積
-        chosenIdx = [];
-        if ~isempty(roiCandidates)
-            cents = cat(1, stats(roiCandidates).Centroid);
-            dists = hypot(cents(:,1)-x0, cents(:,2)-y0);
-            [~,m] = min(dists);
-            chosenIdx = roiCandidates(m);
-        else
-            centsAll = cat(1, stats(validIdx).Centroid);
-            if ~isempty(prevPos) && ~any(isnan(prevPos))
-                distsAll = hypot(centsAll(:,1)-prevPos(1), centsAll(:,2)-prevPos(2));
-                [~,m2] = min(distsAll);
-                chosenIdx = validIdx(m2);
+        % 若有 ROI，裁切子影像 sub（所有偵測都在 sub 上進行）
+        if ~isempty(roi)
+            x = round(roi(1)); y = round(roi(2)); w = round(roi(3)); h = round(roi(4));
+            x1 = max(1,x); y1 = max(1,y);
+            x2 = min(size(gray,2), x + max(0,w)); y2 = min(size(gray,1), y + max(0,h));
+            if x2 < x1 || y2 < y1
+                sub = gray;
+                x1 = 1; y1 = 1; x2 = size(gray,2); y2 = size(gray,1);
             else
-                areas = arrayfun(@(s) s.Area, stats(validIdx));
-                [~,m3] = max(areas);
-                chosenIdx = validIdx(m3);
+                sub = gray(y1:y2, x1:x2);
             end
+        else
+            sub = gray;
+            x1 = 1; y1 = 1; x2 = size(gray,2); y2 = size(gray,1);
         end
 
-        % 從 chosenIdx 取前緣（底邊中點）
-        bbox = stats(chosenIdx).BoundingBox;
-        candX = bbox(1) + bbox(3)/2;
-        candY = bbox(2) + bbox(4);
+        chosenType = 'none';
+        newPos = prevPos; % default keep
 
-        % 若距離過大，嘗試選最近 candidate 或以速度限制分段移動
-        distToPrev = hypot(candX - prevPos(1), candY - prevPos(2));
-        if distToPrev > maxJump
-            centsAll = cat(1, stats(validIdx).Centroid);
-            distsAll = hypot(centsAll(:,1)-prevPos(1), centsAll(:,2)-prevPos(2));
-            [minD, minIdx] = min(distsAll);
-            if minD <= maxJump
-                chosenIdx = validIdx(minIdx);
-                bbox = stats(chosenIdx).BoundingBox;
-                candX = bbox(1) + bbox(3)/2;
-                candY = bbox(2) + bbox(4);
-            else
-                % 接受最接近的 candidate，但限制每幀最大位移為 maxJump
-                % 找最接近的 candidate
-                [~, closestIdxRel] = min(distsAll);
-                chosenIdx = validIdx(closestIdxRel);
-                bboxClosest = stats(chosenIdx).BoundingBox;
-                candXraw = bboxClosest(1) + bboxClosest(3)/2;
-                candYraw = bboxClosest(2) + bboxClosest(4);
-                % 限制移動向量
-                dx = candXraw - prevPos(1);
-                dy = candYraw - prevPos(2);
-                dist = hypot(dx,dy);
-                if dist > 0
-                    scale = min(1, maxJump / dist);
-                    candX = prevPos(1) + dx * scale;
-                    candY = prevPos(2) + dy * scale;
-                else
-                    candX = prevPos(1);
-                    candY = prevPos(2);
+        % --- 方法 A: 在 sub 上做 local-edge 偵測（以 prevPos 為中心） ---
+        if useEdgeFirst
+            subProc = imgaussfilt(sub, 1.0);
+            subProc = adapthisteq(subProc);
+            edgesLocal = edge(subProc,'Canny',cannyThresh);
+            edgesLocal = imclose(edgesLocal, strel('line',3,0));
+            edgesLocal = bwareaopen(edgesLocal, max(1, edgeAreaThresh));
+        
+            % prevPos 轉 sub 座標
+            xOffset = x1 - 1;
+            yOffset = y1 - 1;
+            prevX_sub = round(prevPos(1) - xOffset);
+            prevY_sub = round(prevPos(2) - yOffset);
+            prevX_sub = max(1, min(size(sub,2), prevX_sub));
+            prevY_sub = max(1, min(size(sub,1), prevY_sub));
+        
+            % 窄欄搜尋
+            xL = max(1, prevX_sub - halfWidth);
+            xR = min(size(sub,2), prevX_sub + halfWidth);
+        
+            [er, ec] = find(edgesLocal(:, xL:xR));  % er=row (y), ec=col (x) 相對 xL
+            if isempty(er)
+                % 放寬一次
+                xL2 = max(1, prevX_sub - halfWidth*2);
+                xR2 = min(size(sub,2), prevX_sub + halfWidth*2);
+                [er2, ec2] = find(edgesLocal(:, xL2:xR2));
+                er = er2; ec = ec2; xL = xL2;
+            end
+        
+            if ~isempty(er)
+                % 垂直距離限制（避免跳到底）
+                maxYDelta = 50;  % 可調 30–80
+                mask = er >= prevY_sub & er <= prevY_sub + maxYDelta;
+                er = er(mask); ec = ec(mask);
+                if ~isempty(er)
+                    ec_abs = ec + xL - 1;
+                    % 距離上一幀最近
+                    dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+                    [~, sel] = min(dists);
+                    frontX_sub = ec_abs(sel);
+                    frontY_sub = er(sel);
+        
+                    fx_global = frontX_sub + xOffset;
+                    fy_global = frontY_sub + yOffset;
+        
+                    % 強制在 ROI 內
+                    if ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
+                        newPos = prevPos;
+                    else
+                        newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
+                        chosenType = 'edge';
+                    end
                 end
             end
         end
 
-        % 寫入並輸出 debug
-        positions(i,:) = [candX, candY];
-        if ~isempty(prevPos) && ~any(isnan(prevPos))
-            jumpDist = hypot(positions(i,1)-prevPos(1), positions(i,2)-prevPos(2));
-            prevX = prevPos(1); prevY = prevPos(2);
-        else
-            jumpDist = NaN; prevX = NaN; prevY = NaN;
-        end
-        numCandidates = numel(validIdx);
-        fprintf('Frame %d: chosen=[%.1f,%.1f] prev=[%.1f,%.1f] jump=%.1f candidates=%d\n', ...
-            i, positions(i,1), positions(i,2), prevX, prevY, jumpDist, numCandidates);
 
-        % 更新 prevPrevPos 與 prevPos
+        % --- 方法 B: blob-based fallback 在 sub 上執行（若 edge 沒選到） ---
+        if strcmp(chosenType,'none')
+            bwSub = imbinarize(sub, 'adaptive');
+            bwSub = bwareaopen(bwSub, bwarea_min);
+            ccSub = bwconncomp(bwSub);
+            if ccSub.NumObjects > 0
+                statsSub = regionprops(ccSub, 'Area','Centroid');
+                % 面積過濾
+                validIdxSub = find([statsSub.Area] >= minArea);
+                if ~isempty(validIdxSub)
+                    xOffset = x1 - 1; yOffset = y1 - 1;
+                    prevX_sub = prevPos(1) - xOffset;
+                    prevY_sub = prevPos(2) - yOffset;
+        
+                    cents = cat(1, statsSub(validIdxSub).Centroid); % [x y] in sub
+                    % 垂直距離限制
+                    maxYDelta = 50;
+                    maskY = cents(:,2) >= prevY_sub & cents(:,2) <= prevY_sub + maxYDelta;
+                    cents = cents(maskY,:); validIdxSub = validIdxSub(maskY);
+                    if ~isempty(validIdxSub)
+                        dists = hypot(cents(:,1) - prevX_sub, cents(:,2) - prevY_sub);
+                        [~, m] = min(dists);
+                        candX_global = cents(m,1) + xOffset;
+                        candY_global = cents(m,2) + yOffset;
+                        if ~isempty(roi) && (candX_global < x1 || candX_global > x2 || candY_global < y1 || candY_global > y2)
+                            newPos = prevPos;
+                        else
+                            newPos = limitMove(prevPos, [candX_global, candY_global], maxJump);
+                            chosenType = 'blob';
+                        end
+                    end
+                end
+            end
+        end
+
+        % --- 方法 C: temporal-diff fallback（若 edge 與 blob 都沒選到） ---
+        if strcmp(chosenType,'none') && i>1
+            prevFrame = frames{i-1};
+            diff = imabsdiff(rgb2gray(frame), rgb2gray(prevFrame));
+            diff = imgaussfilt(diff,0.8);
+            bwDiff = imbinarize(diff,'adaptive');
+            bwDiff = bwareaopen(bwDiff, 30);
+            subDiff = bwDiff(y1:y2, x1:x2);
+        
+            [dr, dc] = find(subDiff);
+            if ~isempty(dr)
+                xOffset = x1 - 1; yOffset = y1 - 1;
+                prevX_sub = prevPos(1) - xOffset;
+                prevY_sub = prevPos(2) - yOffset;
+                maxYDelta = 50;
+                mask = dr >= prevY_sub & dr <= prevY_sub + maxYDelta;
+                dr = dr(mask); dc = dc(mask);
+                if ~isempty(dr)
+                    dists = hypot(double(dc - prevX_sub), double(dr - prevY_sub));
+                    [~, sel] = min(dists);
+                    fx_global = dc(sel) + xOffset;
+                    fy_global = dr(sel) + yOffset;
+                    newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
+                    chosenType = 'diff';
+                end
+            end
+        end
+
+
+        % 寫入並更新 prevPos（已在 ROI 內或保留 prevPos）
+        positions(i,:) = newPos;
         prevPrevPos = prevPos;
         prevPos = positions(i,:);
 
-        % 可選視覺化（debug）
+        % debug visualization
         if useDebug
             imshow(frame); hold on;
-            for k = validIdx
-                rectangle('Position', stats(k).BoundingBox, 'EdgeColor','y');
-            end
-            rectangle('Position', bbox, 'EdgeColor','r', 'LineWidth',2);
-            plot(prevPos(1), prevPos(2), 'ro', 'MarkerFaceColor','r');
+            rectangle('Position',[x1,y1,x2-x1,y2-y1],'EdgeColor','g','LineWidth',1.5);
+            plot(prevPos(1), prevPos(2), 'yo', 'MarkerFaceColor','y');
+            plot(positions(i,1), positions(i,2), 'ro', 'MarkerFaceColor','r');
+            title(sprintf('Frame %d: %s chosen', i, chosenType));
             hold off; drawnow;
-            pause(0.02);
         end
+    end
+
+    if useDebug && exist('hFigDbg','var') && isvalid(hFigDbg)
+        close(hFigDbg);
     end
 end
 
-% ---------------- helper functions ----------------
+% ---------------- helper: limitMove ----------------
 function p = limitMove(prev, cand, maxStep)
-    dx = cand(1) - prev(1);
-    dy = cand(2) - prev(2);
-    d = hypot(dx,dy);
+    if isempty(prev) || any(isnan(prev))
+        p = cand; return;
+    end
+    dx = cand(1) - prev(1); dy = cand(2) - prev(2);
+    d = hypot(dx, dy);
     if d <= maxStep || d == 0
         p = cand;
     else
@@ -235,17 +237,55 @@ function p = limitMove(prev, cand, maxStep)
     end
 end
 
-function [frontX, frontY, ok] = detectFrontEdge(gray)
-    % 簡單邊緣前緣偵測：Canny -> 找最下方 edge row
-    edges = edge(gray, 'Canny');
-    edges = bwareaopen(edges, 20);
-    [er, ec] = find(edges);
-    if isempty(er)
-        frontX = NaN; frontY = NaN; ok = false;
-        return;
+% ---------------- helper: detectFrontEdgeLocal ----------------
+function [frontX_sub, frontY_sub, ok] = detectFrontEdgeLocal(subGray, prevPosGlobal, xOffset, yOffset, halfWidth, areaThresh, cannyThresh)
+% 在 subGray 上搜尋以 prevPos 為中心的 edge，回傳 sub 座標
+% 只選擇距離 prevPos 下方不超過 maxYDelta 的 edge，避免直接跳到底
+
+    ok = false; frontX_sub = NaN; frontY_sub = NaN;
+    if isempty(subGray), return; end
+
+    % 邊緣偵測
+    if nargin>=7 && ~isempty(cannyThresh)
+        edges = edge(subGray, 'Canny', cannyThresh);
+    else
+        edges = edge(subGray, 'Canny');
     end
-    frontY = max(er);
-    xs = ec(er == frontY);
-    frontX = mean(xs);
+    edges = imclose(edges, strel('line',3,0));
+    edges = bwareaopen(edges, max(1, areaThresh));
+
+    % 上一幀位置轉成 sub 座標
+    prevX_sub = round(prevPosGlobal(1) - xOffset);
+    prevX_sub = max(1, min(size(subGray,2), prevX_sub));
+    prevY_sub = round(prevPosGlobal(2) - yOffset);
+    prevY_sub = max(1, min(size(subGray,1), prevY_sub));
+
+    % 搜尋範圍
+    xL = max(1, prevX_sub - halfWidth);
+    xR = min(size(subGray,2), prevX_sub + halfWidth);
+
+    [er, ec] = find(edges(:, xL:xR));
+    if isempty(er)
+        % 放寬搜尋範圍
+        xL2 = max(1, prevX_sub - halfWidth*2);
+        xR2 = min(size(subGray,2), prevX_sub + halfWidth*2);
+        [er2, ec2] = find(edges(:, xL2:xR2));
+        if isempty(er2), return; end
+        er = er2; ec = ec2; xL = xL2;
+    end
+
+    % 限制只選在 prevY_sub 下方不超過 maxYDelta 的 edge
+    maxYDelta = 50; % 可調整
+    validMask = er >= prevY_sub & er <= prevY_sub + maxYDelta;
+    er = er(validMask); ec = ec(validMask);
+    if isempty(er), return; end
+
+    % 選距離 prevPos 最近的 edge
+    ec_abs = ec + xL - 1;
+    dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+    [~, idxMin] = min(dists);
+    frontX_sub = ec_abs(idxMin);
+    frontY_sub = er(idxMin);
+
     ok = true;
 end

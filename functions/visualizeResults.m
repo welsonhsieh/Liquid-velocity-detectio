@@ -39,6 +39,14 @@ function visualizeResults(frames, positions, velocity, startFrame)
     if vrange == 0, vrange = abs(vmax)+1; end
     ylim(hAx2, [vmin-0.5*vrange, vmax+0.5*vrange]);
 
+    % 確認鍵
+    choice = questdlg('是否開始播放結果？', ...
+                      '確認', ...
+                      '開始','取消','開始');
+    if strcmp(choice,'取消')
+        return;
+    end
+
     % 動態更新
     for i = startFrame:numFrames
         % 更新影像

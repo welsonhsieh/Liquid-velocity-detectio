@@ -36,7 +36,7 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
     % --- 參數（可調） ---
     roiRadius = 200;    % blob fallback 搜尋半徑（仍在 ROI 內）
     minArea = 50;       % blob 最小面積
-    maxJump = 30;       % 每幀最大允許移動距離（可調）
+    maxJump = 20;       % 每幀最大允許移動距離（可調）
     bwarea_min = 50;    % 二值化後去小雜點
     edgeAreaThresh = 6; % 邊緣群組最小面積
     useEdgeFirst = true; % 優先使用邊緣偵測
@@ -111,22 +111,36 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
         
             if ~isempty(er)
                 % 垂直距離限制（避免跳到底）
-                maxYDelta = 50;  % 可調 30–80
+                maxYDelta = 50;  % 放寬一點
                 mask = er >= prevY_sub & er <= prevY_sub + maxYDelta;
                 er = er(mask); ec = ec(mask);
+            
                 if ~isempty(er)
                     ec_abs = ec + xL - 1;
-                    % 距離上一幀最近
-                    dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
-                    [~, sel] = min(dists);
-                    frontX_sub = ec_abs(sel);
-                    frontY_sub = er(sel);
-        
+            
+                    % 優先取最下方一行的中間位置
+                    maxY = max(er);
+                    idxs = find(er == maxY);
+                    xs_at_maxY = ec_abs(idxs);
+            
+                    if ~isempty(xs_at_maxY)
+                        frontX_sub = round(mean(xs_at_maxY));
+                        frontY_sub = maxY;
+                    else
+                        % fallback：距離上一幀最近
+                        dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+                        [~, sel] = min(dists);
+                        frontX_sub = ec_abs(sel);
+                        frontY_sub = er(sel);
+                    end
+            
                     fx_global = frontX_sub + xOffset;
                     fy_global = frontY_sub + yOffset;
-        
-                    % 強制在 ROI 內
-                    if ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
+            
+                    % 邊界約束：避免超越 ROI 底部
+                    if fy_global > y2 - 10
+                        newPos = prevPos;
+                    elseif ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
                         newPos = prevPos;
                     else
                         newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
@@ -134,6 +148,7 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
                     end
                 end
             end
+
         end
 
 

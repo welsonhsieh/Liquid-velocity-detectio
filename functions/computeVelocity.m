@@ -6,4 +6,5 @@ function velocity = computeVelocity(positions, fps, scale)
 
     % 補齊長度，使 velocity 與 positions 對齊
     velocity = [0; velocity]; % 第一幀速度設為 0
+    
 end

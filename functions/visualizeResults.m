@@ -49,7 +49,6 @@ function visualizeResults(frames, positions, velocity, startFrame, roi)
 
     
 
-
     % 動態更新
     for i = startFrame:numFrames
         % 更新影像

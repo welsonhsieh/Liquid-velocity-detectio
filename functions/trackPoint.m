@@ -40,7 +40,7 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
     bwarea_min = 50;    % 二值化後去小雜點
     edgeAreaThresh = 6; % 邊緣群組最小面積
     useEdgeFirst = true; % 優先使用邊緣偵測
-    useDebug = true;     % 若要視覺化，設 true
+    useDebug =true;     % 若要視覺化，設 true
     halfWidth = 20;      % local-edge 搜尋左右半寬（像素）
     cannyThresh = [0.02, 0.18];
 
@@ -124,48 +124,21 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
                 if ~isempty(er)
                     ec_abs = ec + xL - 1;
                     %----------------------------------------------------
-                    % % 優先取最下方一行的中間位置
-                    % maxY = max(er);
-                    % idxs = find(er == maxY);
-                    % xs_at_maxY = ec_abs(idxs);
-                    % 
-                    % if ~isempty(xs_at_maxY)
-                    %     frontX_sub = round(mean(xs_at_maxY));
-                    %     frontY_sub = maxY;
-                    % else
-                    %     % fallback：距離上一幀最近
-                    %     dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
-                    %     [~, sel] = min(dists);
-                    %     frontX_sub = ec_abs(sel);
-                    %     frontY_sub = er(sel);
-                    % end
-                    % 
-                    % fx_global = frontX_sub + xOffset;
-                    % fy_global = frontY_sub + yOffset;
-                    % 
-                    % % 邊界約束：避免超越 ROI 底部
-                    % if fy_global > y2 - 10
-                    %     newPos = prevPos;
-                    % elseif ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
-                    %     newPos = prevPos;
-                    % else
-                    %     newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
-                    %     % 硬性 ROI 圍籬：limitMove 之後再檢查一次
-                    %     if ~isempty(roi)
-                    %         if newPos(1) < x1 || newPos(1) > x2 || newPos(2) < y1 || newPos(2) > y2
-                    %             newPos = prevPos; % 不允許出界
-                    %         end
-                    %     end
-                    %     chosenType = 'edge';
-                    % end
-
-                    %--------------------------------------------------
-                    % 距離上一幀最近
-                    dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+                    lambda = 0.9;  % 往下的偏好權重，越大越強
+                    dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub)) ...
+                            - lambda * double(er - prevY_sub);  % y 越大距離越小
                     [~, sel] = min(dists);
                     frontX_sub = ec_abs(sel);
                     frontY_sub = er(sel);
 
+
+                    %--------------------------------------------------
+                    % % 距離上一幀最近
+                    % dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+                    % [~, sel] = min(dists);
+                    % frontX_sub = ec_abs(sel);
+                    % frontY_sub = er(sel);
+                    % 
                     fx_global = frontX_sub + xOffset;
                     fy_global = frontY_sub + yOffset;
 

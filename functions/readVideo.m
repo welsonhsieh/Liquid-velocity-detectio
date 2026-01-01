@@ -6,3 +6,4 @@ function frames = readVideo(filename)
         frames{end+1} = readFrame(v);
     end
 end
+

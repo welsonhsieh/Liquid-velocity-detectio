@@ -1,4 +1,4 @@
-function visualizeResults(frames, positions, velocity, startFrame)
+function visualizeResults(frames, positions, velocity, startFrame, roi)
     numFrames = length(frames);
 
     % 防護：確保 positions 長度正確
@@ -47,10 +47,18 @@ function visualizeResults(frames, positions, velocity, startFrame)
         return;
     end
 
+    
+
+
     % 動態更新
     for i = startFrame:numFrames
         % 更新影像
         set(hImg,'CData',frames{i});
+
+        % 畫 ROI 框（若有）
+        if ~isempty(roi)
+            rectangle('Position', roi, 'EdgeColor','g', 'LineWidth',2);
+        end
 
         % 更新軌跡與紅點
         set(hTrail,'XData',positions(startFrame:i,1),'YData',positions(startFrame:i,2));

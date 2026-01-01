@@ -19,6 +19,10 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
                   'Position',[200 200 1000 600]);
     hAx  = axes('Parent', hFig, 'Units','normalized', 'Position',[0.02 0.12 0.68 0.85]);
 
+    % 完成按鈕（只有按下才結束）
+    uicontrol('Style','pushbutton','String','完成','Units','normalized',...
+          'Position',[0.73 0.38 0.24 0.06],'FontSize',11,'Callback',@(s,~) finishCb());
+
     % 讀第一幀顯示
     try
         frame = read(v, 1);
@@ -27,20 +31,19 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
     end
     hImg = imshow(frame, 'Parent', hAx);
     axis(hAx,'image');
-    title(hAx, '拖曳滑桿選幀，先畫 ROI（可選），再按「選擇參考點」點選');
+    title(hAx, '拖曳滑桿選幀，先畫 ROI（可選），再按「選擇參考點」，最後按「完成」');
 
     % 幀數文字
     hText = uicontrol('Style','text','Units','normalized','Position',[0.73 0.82 0.24 0.06],...
                       'String','Frame: 1','FontSize',11,'HorizontalAlignment','left');
 
-    % --- 先建立滑桿（必須先建立，讓按鈕 callback 可用） ---
+    % --- 建立滑桿 ---
     sliderPos = [0.02 0.03 0.68 0.06];
     hSlider = uicontrol('Style','slider','Units','normalized','Position',sliderPos, ...
         'Min',1,'Max',numFrames,'Value',1, ...
         'SliderStep',[1/(max(numFrames-1,1)) min(10/(max(numFrames-1,1)),1)], ...
         'Callback',@(src,evt) sliderCallback(src));
 
-    % 支援滑桿拖曳即時更新（若支援）
     try
         addlistener(hSlider,'ContinuousValueChange',@(src,evt) sliderCallback(src));
     catch
@@ -54,7 +57,7 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
     uicontrol('Style','pushbutton','String','Clear ROI','Units','normalized',...
         'Position',[0.73 0.64 0.24 0.06],'FontSize',11,'Callback',@(s,~) clearRoiCb());
 
-    % 選擇按鈕
+    % 選擇參考點按鈕
     uicontrol('Style','pushbutton','String','選擇參考點','Units','normalized',...
         'Position',[0.73 0.54 0.24 0.06],'FontSize',11,'Callback',@(s,~) pickPointCallback());
 
@@ -67,18 +70,18 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
     setappdata(hFig,'refFrameIdx',[]);
     setappdata(hFig,'roi',[]);
 
-    % 等待使用者操作
-    uiwait(hFig);
+    % 等待使用者操作（直到按完成或取消）
+    waitfor(hFig);  % 等待 figure 關閉
 
-    % 取回結果
-    if isvalid(hFig)
-        refPoint = getappdata(hFig,'refPoint');
-        refFrameIdx = getappdata(hFig,'refFrameIdx');
-        roi = getappdata(hFig,'roi');
-        delete(hFig);
-    else
-        refPoint = []; refFrameIdx = []; roi = [];
-    end
+    % 取回結果（figure 已經關閉，但 appdata 還在）
+
+    refPoint    = getappdata(0,'refPoint');
+    refFrameIdx = getappdata(0,'refFrameIdx');
+    roi         = getappdata(0,'roi');
+
+    delete(hFig);  % 主程式最後再刪掉
+
+
 
     % ---------------- nested callback functions ----------------
     function sliderCallback(hSliderLocal)
@@ -87,78 +90,36 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
         try
             frameLocal = read(v, frameIdx);
         catch
-            frameLocal = read(v,1);
-            frameIdx = 1;
+            frameLocal = read(v,1); frameIdx = 1;
         end
         set(hImg,'CData',frameLocal);
         set(hText,'String',sprintf('Frame: %d', frameIdx));
-        axis(hAx,'image');
-        drawnow;
-        axes(hAx); % 確保焦點在 axes
+        axis(hAx,'image'); drawnow;
     end
 
     function drawRoiCb()
-    axes(hAx);
-    hRect = imrect(hAx);
-    if isempty(hRect)
-        return;
-    end
-    pos = wait(hRect); % pos 可能為 [] 或 非長度4
-
-    % 安全檢查 pos
-    if isempty(pos) || ~isnumeric(pos) || numel(pos) < 4 || any(~isfinite(pos))
-        % 使用者取消或回傳不合法，直接返回
-        try delete(hRect); catch, end
-        return;
-    end
-
-    % 夾點到整張影像範圍（確保 hImg 有 CData）
-    imgC = get(hImg,'CData');
-    imgH = size(imgC,1);
-    imgW = size(imgC,2);
-
-    x = pos(1); y = pos(2); w = pos(3); h = pos(4);
-    % 若寬高為負或零，視為取消
-    if w <= 0 || h <= 0
-        try delete(hRect); catch, end
-        return;
-    end
-
-    x = max(1, round(x));
-    y = max(1, round(y));
-    x2 = min(imgW, round(x + w));
-    y2 = min(imgH, round(y + h));
-    w = max(0, x2 - x);
-    h = max(0, y2 - y);
-    if w == 0 || h == 0
-        try delete(hRect); catch, end
-        return;
-    end
-
-    posClamped = [x, y, w, h];
-    setappdata(hFig,'roi',posClamped);
-
-    % 移除舊的 ROI rectangle（避免重疊），再畫新的
-    old = findobj(hAx,'Type','rectangle','Tag','roiRect');
-    if ~isempty(old), delete(old); end
-    r = rectangle('Position',posClamped,'EdgeColor','g','LineWidth',2,'Tag','roiRect');
+        axes(hAx);
+        hRect = drawrectangle('Parent',hAx);
+        if isempty(hRect), return; end
+        pos = hRect.Position;
+        imgC = get(hImg,'CData');
+        imgH = size(imgC,1); imgW = size(imgC,2);
+        x = max(1, round(pos(1))); y = max(1, round(pos(2)));
+        x2 = min(imgW, round(x + pos(3))); y2 = min(imgH, round(y + pos(4)));
+        w = max(0, x2 - x); h = max(0, y2 - y);
+        if w==0 || h==0, return; end
+        posClamped = [x, y, w, h];
+        setappdata(hFig,'roi',posClamped);
+        old = findobj(hAx,'Type','rectangle','Tag','roiRect');
+        if ~isempty(old), delete(old); end
+        rectangle('Position',posClamped,'EdgeColor','g','LineWidth',2,'Tag','roiRect');
     end
 
     function clearRoiCb()
         setappdata(hFig,'roi',[]);
-        % 移除 ROI rectangle（若存在）
         old = findobj(hAx,'Type','rectangle','Tag','roiRect');
         if ~isempty(old), delete(old); end
-        % 重新顯示當前影格以移除殘留繪圖
-        try
-            cdata = get(hImg,'CData');
-            cla(hAx);
-            imshow(cdata,'Parent',hAx);
-            axis(hAx,'image');
-        catch
-        end
     end
-
 
     function pickPointCallback()
         frameIdx = round(get(hSlider,'Value'));
@@ -166,39 +127,23 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
         try
             frameLocal = read(v, frameIdx);
         catch
-            frameLocal = read(v,1);
-            frameIdx = 1;
+            frameLocal = read(v,1); frameIdx = 1;
         end
-
-        axes(hAx);
-        imshow(frameLocal, 'Parent', hAx);
-        axis(hAx,'image');
-        title(hAx, sprintf('Frame %d - 請點選參考點（或按 ESC 取消）', frameIdx));
-        drawnow;
-        axes(hAx);
-
+        axes(hAx); imshow(frameLocal,'Parent',hAx); axis(hAx,'image');
+        title(hAx, sprintf('Frame %d - 請點選參考點', frameIdx));
         try
             [x,y] = ginput(1);
-            if isempty(x)
-                setappdata(hFig,'refPoint',[]);
-                setappdata(hFig,'refFrameIdx',[]);
-            else
+            if ~isempty(x)
                 rp = round([x,y]);
                 setappdata(hFig,'refPoint',rp);
                 setappdata(hFig,'refFrameIdx',frameIdx);
+                disp(['選到的參考點: ', mat2str(rp), ' frameIdx=', num2str(frameIdx)]);
                 hold(hAx,'on');
-                plot(hAx, rp(1), rp(2), 'ro', 'MarkerSize', 10, 'LineWidth', 2);
-                text(hAx, rp(1)+5, rp(2), 'Ref', 'Color', 'yellow', 'FontSize', 12);
+                plot(hAx, rp(1), rp(2), 'ro','MarkerSize',10,'LineWidth',2);
+                text(hAx, rp(1)+5, rp(2),'Ref','Color','yellow','FontSize',12);
                 hold(hAx,'off');
             end
         catch
-            setappdata(hFig,'refPoint',[]);
-            setappdata(hFig,'refFrameIdx',[]);
-        end
-
-        % 自動結束並關閉視窗
-        if isvalid(hFig)
-            uiresume(hFig);
         end
     end
 
@@ -211,4 +156,17 @@ function [refPoint, refFrameIdx, roi] = selectReferencePoint(videoFile)
             delete(hFig);
         end
     end
+
+    function finishCb()
+        if isvalid(hFig)
+            setappdata(0,'refPoint',getappdata(hFig,'refPoint'));
+            setappdata(0,'refFrameIdx',getappdata(hFig,'refFrameIdx'));
+            setappdata(0,'roi',getappdata(hFig,'roi'));
+            close(hFig);  % 關閉 figure
+        end
+    end
+
+
+
+
 end

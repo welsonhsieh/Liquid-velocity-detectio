@@ -40,13 +40,14 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
     bwarea_min = 50;    % 二值化後去小雜點
     edgeAreaThresh = 6; % 邊緣群組最小面積
     useEdgeFirst = true; % 優先使用邊緣偵測
-    useDebug = false;     % 若要視覺化，設 true
+    useDebug = true;     % 若要視覺化，設 true
     halfWidth = 20;      % local-edge 搜尋左右半寬（像素）
     cannyThresh = [0.02, 0.18];
 
     % debug figure
     if useDebug
         hFigDbg = figure('Name','trackPoint debug','NumberTitle','off');
+        % fprintf('ROI = [x1=%d, y1=%d, x2=%d, y2=%d]\n', x1, y1, x2, y2);
     end
 
     % --- 主迴圈 ---
@@ -66,6 +67,11 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
             x = round(roi(1)); y = round(roi(2)); w = round(roi(3)); h = round(roi(4));
             x1 = max(1,x); y1 = max(1,y);
             x2 = min(size(gray,2), x + max(0,w)); y2 = min(size(gray,1), y + max(0,h));
+
+            % if useDebug
+            %     fprintf('ROI = [x1=%d, y1=%d, x2=%d, y2=%d]\n', x1, y1, x2, y2);
+            % end
+
             if x2 < x1 || y2 < y1
                 sub = gray;
                 x1 = 1; y1 = 1; x2 = size(gray,2); y2 = size(gray,1);
@@ -111,48 +117,73 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
         
             if ~isempty(er)
                 % 垂直距離限制（避免跳到底）
-                maxYDelta = 50;  % 放寬一點
+                maxYDelta = 100;  % 放寬一點
                 mask = er >= prevY_sub & er <= prevY_sub + maxYDelta;
                 er = er(mask); ec = ec(mask);
             
                 if ~isempty(er)
                     ec_abs = ec + xL - 1;
-            
-                    % 優先取最下方一行的中間位置
-                    maxY = max(er);
-                    idxs = find(er == maxY);
-                    xs_at_maxY = ec_abs(idxs);
-            
-                    if ~isempty(xs_at_maxY)
-                        frontX_sub = round(mean(xs_at_maxY));
-                        frontY_sub = maxY;
-                    else
-                        % fallback：距離上一幀最近
-                        dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
-                        [~, sel] = min(dists);
-                        frontX_sub = ec_abs(sel);
-                        frontY_sub = er(sel);
-                    end
-            
+                    %----------------------------------------------------
+                    % % 優先取最下方一行的中間位置
+                    % maxY = max(er);
+                    % idxs = find(er == maxY);
+                    % xs_at_maxY = ec_abs(idxs);
+                    % 
+                    % if ~isempty(xs_at_maxY)
+                    %     frontX_sub = round(mean(xs_at_maxY));
+                    %     frontY_sub = maxY;
+                    % else
+                    %     % fallback：距離上一幀最近
+                    %     dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+                    %     [~, sel] = min(dists);
+                    %     frontX_sub = ec_abs(sel);
+                    %     frontY_sub = er(sel);
+                    % end
+                    % 
+                    % fx_global = frontX_sub + xOffset;
+                    % fy_global = frontY_sub + yOffset;
+                    % 
+                    % % 邊界約束：避免超越 ROI 底部
+                    % if fy_global > y2 - 10
+                    %     newPos = prevPos;
+                    % elseif ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
+                    %     newPos = prevPos;
+                    % else
+                    %     newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
+                    %     % 硬性 ROI 圍籬：limitMove 之後再檢查一次
+                    %     if ~isempty(roi)
+                    %         if newPos(1) < x1 || newPos(1) > x2 || newPos(2) < y1 || newPos(2) > y2
+                    %             newPos = prevPos; % 不允許出界
+                    %         end
+                    %     end
+                    %     chosenType = 'edge';
+                    % end
+
+                    %--------------------------------------------------
+                    % 距離上一幀最近
+                    dists = hypot(double(ec_abs - prevX_sub), double(er - prevY_sub));
+                    [~, sel] = min(dists);
+                    frontX_sub = ec_abs(sel);
+                    frontY_sub = er(sel);
+
                     fx_global = frontX_sub + xOffset;
                     fy_global = frontY_sub + yOffset;
-            
-                    % 邊界約束：避免超越 ROI 底部
-                    if fy_global > y2 - 10
-                        newPos = prevPos;
-                    elseif ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
+
+                    % 強制在 ROI 內
+                    if ~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)
                         newPos = prevPos;
                     else
                         newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
                         chosenType = 'edge';
                     end
+
                 end
             end
 
         end
 
 
-        % --- 方法 B: blob-based fallback 在 sub 上執行（若 edge 沒選到） ---
+       % --- 方法 B: blob-based fallback 在 sub 上執行（若 edge 沒選到） ---
         if strcmp(chosenType,'none')
             bwSub = imbinarize(sub, 'adaptive');
             bwSub = bwareaopen(bwSub, bwarea_min);
@@ -168,18 +199,28 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
         
                     cents = cat(1, statsSub(validIdxSub).Centroid); % [x y] in sub
                     % 垂直距離限制
-                    maxYDelta = 50;
+                    maxYDelta = 80; % 放寬一點
                     maskY = cents(:,2) >= prevY_sub & cents(:,2) <= prevY_sub + maxYDelta;
                     cents = cents(maskY,:); validIdxSub = validIdxSub(maskY);
+        
                     if ~isempty(validIdxSub)
                         dists = hypot(cents(:,1) - prevX_sub, cents(:,2) - prevY_sub);
                         [~, m] = min(dists);
                         candX_global = cents(m,1) + xOffset;
                         candY_global = cents(m,2) + yOffset;
-                        if ~isempty(roi) && (candX_global < x1 || candX_global > x2 || candY_global < y1 || candY_global > y2)
+        
+                        % 底部約束 + ROI 邊界檢查
+                        if (~isempty(roi) && (candX_global < x1 || candX_global > x2 || candY_global < y1 || candY_global > y2)) ...
+                           || (candY_global > y2 - 10)
                             newPos = prevPos;
                         else
                             newPos = limitMove(prevPos, [candX_global, candY_global], maxJump);
+                            % 硬性 ROI 圍籬
+                            if ~isempty(roi)
+                                if newPos(1) < x1 || newPos(1) > x2 || newPos(2) < y1 || newPos(2) > y2
+                                    newPos = prevPos;
+                                end
+                            end
                             chosenType = 'blob';
                         end
                     end
@@ -201,16 +242,30 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
                 xOffset = x1 - 1; yOffset = y1 - 1;
                 prevX_sub = prevPos(1) - xOffset;
                 prevY_sub = prevPos(2) - yOffset;
-                maxYDelta = 50;
+                maxYDelta = 80; % 放寬一點
                 mask = dr >= prevY_sub & dr <= prevY_sub + maxYDelta;
                 dr = dr(mask); dc = dc(mask);
+        
                 if ~isempty(dr)
                     dists = hypot(double(dc - prevX_sub), double(dr - prevY_sub));
                     [~, sel] = min(dists);
                     fx_global = dc(sel) + xOffset;
                     fy_global = dr(sel) + yOffset;
-                    newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
-                    chosenType = 'diff';
+        
+                    % 底部約束 + ROI 邊界檢查
+                    if (~isempty(roi) && (fx_global < x1 || fx_global > x2 || fy_global < y1 || fy_global > y2)) ...
+                       || (fy_global > y2 - 10)
+                        newPos = prevPos;
+                    else
+                        newPos = limitMove(prevPos, [fx_global, fy_global], maxJump);
+                        % 硬性 ROI 圍籬
+                        if ~isempty(roi)
+                            if newPos(1) < x1 || newPos(1) > x2 || newPos(2) < y1 || newPos(2) > y2
+                                newPos = prevPos;
+                            end
+                        end
+                        chosenType = 'diff';
+                    end
                 end
             end
         end
@@ -228,6 +283,9 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
             plot(prevPos(1), prevPos(2), 'yo', 'MarkerFaceColor','y');
             plot(positions(i,1), positions(i,2), 'ro', 'MarkerFaceColor','r');
             title(sprintf('Frame %d: %s chosen', i, chosenType));
+
+            fprintf('ROI = [x1=%d, y1=%d, x2=%d, y2=%d]\n', x1, y1, x2, y2);
+
             hold off; drawnow;
         end
     end
@@ -249,7 +307,7 @@ function p = limitMove(prev, cand, maxStep)
     else
         s = maxStep / d;
         p = [prev(1) + dx * s, prev(2) + dy * s];
-    end
+    end  
 end
 
 % ---------------- helper: detectFrontEdgeLocal ----------------

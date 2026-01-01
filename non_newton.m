@@ -21,7 +21,7 @@ else
 end
 
 % 2. 選擇參考點
-[refPoint, refFrameIdx] = selectReferencePoint(fullPath);
+[refPoint, refFrameIdx, roi] = selectReferencePoint(fullPath);
 if isempty(refPoint)
     disp('未選擇參考點或已取消。');
     return;
@@ -32,7 +32,7 @@ end
 fprintf('Main: refPoint = [%.0f, %.0f], refFrameIdx = %d\n', refPoint(1), refPoint(2), refFrameIdx);
 disp(['frame size at refFrame: ', mat2str(size(videoFrames{refFrameIdx}))]);
 
-trackedPositions = trackPoint(videoFrames, refPoint, refFrameIdx);
+trackedPositions = trackPoint(videoFrames, refPoint, refFrameIdx, roi);
 
 % 4. 計算速度
 fps = 30; % 假設影片每秒 30 幀
@@ -40,4 +40,4 @@ scale = 0.01; % 每像素對應的實際距離 (公尺/像素)
 velocity = computeVelocity(trackedPositions, fps, scale);
 
 % 5. 視覺化結果
-visualizeResults(videoFrames, trackedPositions, velocity, refFrameIdx);
+visualizeResults(videoFrames, trackedPositions, velocity, refFrameIdx, roi);

@@ -49,6 +49,13 @@ function visualizeResults(frames, positions, velocity, startFrame, roi)
 
     
 
+
+    uicontrol('Style','pushbutton','String','保存結果',...
+          'Units','normalized','Position',[0.8 0.02 0.15 0.05],...
+          'FontSize',11,'Callback',@(s,~) saveResults(positions, velocity));
+
+
+
     % 動態更新
     for i = startFrame:numFrames
         % 更新影像
@@ -69,5 +76,9 @@ function visualizeResults(frames, positions, velocity, startFrame, roi)
         drawnow;
         pause(0.05);
     end
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> quickEnd
 end

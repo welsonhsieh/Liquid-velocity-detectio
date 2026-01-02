@@ -21,11 +21,13 @@ else
 end
 
 % 2. 選擇參考點
-[refPoint, refFrameIdx, roi] = selectReferencePoint(fullPath);
+[refPoint, refFrameIdx, roi, calibData] = selectReferencePoint(fullPath);
 if isempty(refPoint)
     disp('未選擇參考點或已取消。');
     return;
 end
+
+
 
 
 % 3. 追蹤參考點
@@ -35,8 +37,15 @@ disp(['frame size at refFrame: ', mat2str(size(videoFrames{refFrameIdx}))]);
 trackedPositions = trackPoint(videoFrames, refPoint, refFrameIdx, roi);
 
 % 4. 計算速度
-fps = 30; % 假設影片每秒 30 幀
-scale = 0.01; % 每像素對應的實際距離 (公尺/像素)
+fps = 30;  % or from video metadata
+if isempty(calibData) || isempty(calibData.unitPerPixel)
+    disp('未完成標定，使用預設比例（警告：數值可能不準）。');
+    scale = 0.01;              % fallback m/px
+else
+    scale = calibData.unitPerPixel;  % m/px
+    fprintf('使用標定比例: %.6f m/px\n', scale);
+end
+
 velocity = computeVelocity(trackedPositions, fps, scale);
 
 % 5. 視覺化結果

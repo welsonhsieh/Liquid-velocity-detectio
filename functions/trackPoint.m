@@ -78,13 +78,15 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
             else
                 sub = gray(y1:y2, x1:x2);
             end
+            roiBottom = y + h;
         else
             sub = gray;
             x1 = 1; y1 = 1; x2 = size(gray,2); y2 = size(gray,1);
         end
 
         chosenType = 'none';
-        newPos = prevPos; % default keep
+        newPos = prevPos; % default keepgit push origin main
+
 
         % --- 方法 A: 在 sub 上做 local-edge 偵測（以 prevPos 為中心） ---
         if useEdgeFirst
@@ -244,10 +246,22 @@ function positions = trackPoint(frames, refPoint, startFrame, roi)
         end
 
 
+
         % 寫入並更新 prevPos（已在 ROI 內或保留 prevPos）
         positions(i,:) = newPos;
         prevPrevPos = prevPos;
         prevPos = positions(i,:);
+
+
+        fprintf('Frame %d: posY=%d, roiBottom=%d\n', i, positions(i,2), roiBottom);
+        roiBottom = roi(2) + roi(4);  % ROI 底部 row
+        if ~isempty(roi) && positions(i,2) >= roiBottom-1
+            fprintf('紅點已到達 ROI 底部 (frame %d)，停止追蹤。\n', i);
+            positions(i:end,:) = repmat(positions(i,:), numFrames-i+1, 1);
+            break;
+        end
+
+
 
         % debug visualization
         if useDebug

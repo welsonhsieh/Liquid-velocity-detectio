@@ -1,0 +1,47 @@
+function saveResults(trackedPositions, velocity)
+    if isempty(trackedPositions) || isempty(velocity)
+        errordlg('結果尚未準備好，請稍後再試','錯誤');
+        return;
+    end
+
+    % 副程式：保存追蹤結果
+    % 輸入:
+    %   trackedPositions - Nx2 座標
+    %   velocity         - Nx1 速度
+    
+    % 問使用者是否要保存
+    choice = questdlg('是否要保存結果?', '保存結果', ...
+                      '是','否','否');
+    if strcmp(choice,'是')
+        % 選擇存檔位置
+        [fileName, filePath] = uiputfile({'*.csv','CSV 檔案 (*.csv)'; ...
+                                          '*.mat','MAT 檔案 (*.mat)'}, ...
+                                          '選擇保存檔案');
+        if isequal(fileName,0)
+            disp('使用者取消保存。');
+            return;
+        end
+        
+        fullPath = fullfile(filePath, fileName);
+        
+        % 根據副檔名保存
+        [~,~,ext] = fileparts(fullPath);
+        switch lower(ext)
+            case '.csv'
+                % 建立表格並保存 CSV
+                T = table(trackedPositions(:,1), trackedPositions(:,2), velocity, ...
+                          'VariableNames',{'X','Y','Velocity'});
+                writetable(T, fullPath);
+                fprintf('結果已保存至 CSV: %s\n', fullPath);
+                
+            case '.mat'
+                save(fullPath, 'trackedPositions', 'velocity');
+                fprintf('結果已保存至 MAT: %s\n', fullPath);
+                
+            otherwise
+                disp('不支援的檔案格式。');
+        end
+    else
+        disp('未保存結果。');
+    end
+end

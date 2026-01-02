@@ -53,20 +53,21 @@ function visualizeResults(frames, positions, velocity, startFrame, roi)
     for i = startFrame:numFrames
         % 更新影像
         set(hImg,'CData',frames{i});
-
+    
         % 畫 ROI 框（若有）
         if ~isempty(roi)
-            rectangle('Position', roi, 'EdgeColor','g', 'LineWidth',2);
+            rectangle('Parent', hAx1, 'Position', roi, 'EdgeColor','g', 'LineWidth',2);
         end
-
+    
         % 更新軌跡與紅點
         set(hTrail,'XData',positions(startFrame:i,1),'YData',positions(startFrame:i,2));
         set(hPoint,'XData',positions(i,1),'YData',positions(i,2));
-
+    
         % 更新速度曲線
         set(hVel,'XData',startFrame:i,'YData',velocity(startFrame:i));
-
+    
         drawnow;
         pause(0.05);
     end
+
 end

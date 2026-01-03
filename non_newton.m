@@ -1,4 +1,4 @@
-addpath('functions');   % 把副程式資料夾加入搜尋路徑
+%addpath('functions');   % 把副程式資料夾加入搜尋路徑
 
 % 主程式：流體流速偵測
 clear; clc;
@@ -17,11 +17,11 @@ else
     fprintf('正在讀取影片: %s\n', fullPath);
     
     % 使用完整的路徑讀取影片
-    videoFrames = readVideo(fullPath);
+    videoFrames = FlowTracker.readVideo(fullPath);
 end
 
 % 2. 選擇參考點
-[refPoint, refFrameIdx, roi, calibData] = selectReferencePoint(fullPath);
+[refPoint, refFrameIdx, roi, calibData] = FlowTracker.selectReferencePoint(fullPath);
 if isempty(refPoint)
     disp('未選擇參考點或已取消。');
     return;
@@ -34,7 +34,7 @@ end
 fprintf('Main: refPoint = [%.0f, %.0f], refFrameIdx = %d\n', refPoint(1), refPoint(2), refFrameIdx);
 disp(['frame size at refFrame: ', mat2str(size(videoFrames{refFrameIdx}))]);
 
-trackedPositions = trackPoint(videoFrames, refPoint, refFrameIdx, roi);
+trackedPositions = FlowTracker.trackPoint(videoFrames, refPoint, refFrameIdx, roi);
 
 % 4. 計算速度
 fps = 30;  % or from video metadata
@@ -46,7 +46,7 @@ else
     fprintf('使用標定比例: %.6f m/px\n', scale);
 end
 
-velocity = computeVelocity(trackedPositions, fps, scale);
+velocity = FlowTracker.computeVelocity(trackedPositions, fps, scale);
 
 % 5. 視覺化結果
-visualizeResults(videoFrames, trackedPositions, velocity, refFrameIdx, roi);
+FlowTracker.visualizeResults(videoFrames, trackedPositions, velocity, refFrameIdx, roi);
